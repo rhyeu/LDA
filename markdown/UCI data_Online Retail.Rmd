@@ -8,3 +8,79 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+
+-   reference
+
+    -   UCI repository : [Online Retail](http://archive.ics.uci.edu/ml/datasets/online+retail)
+
+    -   Datacamp : [**Market Basket Analysis using R**](https://www.datacamp.com/community/tutorials/market-basket-analysis-r)
+
+```{r}
+#install and load package arules
+#install.packages("arules")
+library(arules)
+#install and load arulesViz
+#install.packages("arulesViz")
+library(arulesViz)
+#install and load tidyverse
+#install.packages("tidyverse")
+library(tidyverse)
+#install and load readxml
+#install.packages("readxml")
+library(readxl)
+#install and load knitr
+#install.packages("knitr")
+library(knitr)
+#load ggplot2 as it comes in tidyverse
+library(ggplot2)
+#install and load lubridate
+#install.packages("lubridate")
+library(lubridate)
+#install and load plyr
+#install.packages("plyr")
+library(plyr)
+library(dplyr)
+library(here)
+```
+
+## Data Description
+
+#### **Dataset Description**
+
+-   **Number of Rows:**541909
+
+-   **Number of Attributes:**08
+
+##### Attribute Information
+
+-   InvoiceNo: Invoice number. Nominal, a 6-digit integral number uniquely assigned to each transaction. If this code starts with letter 'c', it indicates a cancellation. +StockCode: Product (item) code. Nominal, a 5-digit integral number uniquely assigned to each distinct product.
+
+-   Description: Product (item) name. Nominal.
+
+-   Quantity: The quantities of each product (item) per transaction. Numeric.
+
+-   InvoiceDate: Invoice Date and time. Numeric, the day and time when each transaction was generated. Example from dataset: 12/1/2010 8:26
+
+-   UnitPrice: Unit price. Numeric, Product price per unit in sterling.
+
+-   CustomerID: Customer number. Nominal, a 5-digit integral number uniquely assigned to each customer.
+
+-   Country: Country name. Nominal, the name of the country where each customer resides.
+
+## Data Pre-Processing
+
+```{r}
+# read excel into R dataframe
+
+retail <- read_excel(here('data/online_retail/Online Retail.xlsx'))
+
+# complete.cases(data) will return a logical vector indicating which rows have no missing value Then use the vector to get only rows that are complete using retail[,].
+retail <- retail[complete.cases(retail),]
+
+#mutate function is from dplyr package. It is used to edit or add new columns to dataframe. Here Description column is being converted to factor column. as.factor converts column to factor column. %>% is an operator with which you may pipe values to another function or expression
+retail <- retail %>% mutate(Description = as.factor(Description))
+```
+
+```{r}
+retail <- retail %>% mutate(Country = as.factor(Country))
+```
