@@ -1,0 +1,10 @@
+---
+title: 'UCI data : Online Retail'
+author: "류성균"
+date: '2021 1 6 '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```

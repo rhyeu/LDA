@@ -20,3 +20,14 @@ data("Groceries")
 glimpse(Groceries)
 ```
 
+```{r}
+Groceries %>% head()
+```
+
+```{r}
+str(Groceries)
+```
+```{r}
+Groceries@data %>% show()
+```
+
