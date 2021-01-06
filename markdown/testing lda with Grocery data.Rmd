@@ -1,0 +1,22 @@
+---
+title: "test lda packages with grocery data"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# install.packages("arules")
+library("arules")
+library(tidyverse)
+
+data("Groceries")
+
+```
+
+```{r}
+glimpse(Groceries)
+```
+
