@@ -47,7 +47,7 @@ library(here)
 
 #### **Dataset Description**
 
--   **Number of Rows:**541909
+-   **Number of Rows:**541,909
 
 -   **Number of Attributes:**08
 
@@ -84,3 +84,36 @@ retail <- retail %>% mutate(Description = as.factor(Description))
 ```{r}
 retail <- retail %>% mutate(Country = as.factor(Country))
 ```
+
+```{r}
+# Converts character data to date. Store InvoiceDate as date in new variable
+retail$Date <- as.Date(retail$InvoiceDate)
+# Extract time from InvoiceDate and store in another variable
+TransTime <- format(retail$InvoiceDate, "%H:%M:%S")
+# Convert and edit InvoiceNo into numeric
+retail$InvoiceNo <- as.numeric(as.character(retail$InvoiceNo))
+```
+
+```{r}
+#Bind new columns TransTime and InvoiceNo into dataframe retail
+retail <- cbind(retail, TransTime)
+```
+
+```{r}
+retail %>% glimpse()
+```
+
+```{r}
+Description <- retail$Description
+
+duplicated(retail) %>% table()
+
+retail[duplicated(retail), ] %>% 
+  arrange(InvoiceNo, StockCode, Description)
+```
+
+```{r}
+shop
+```
+
+
