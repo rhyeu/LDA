@@ -15,13 +15,15 @@ knitr::opts_chunk$set(echo = TRUE)
 
     -   Datacamp : [**Market Basket Analysis using R**](https://www.datacamp.com/community/tutorials/market-basket-analysis-r)
 
+    -   [토픽모형을 이용한 빅데이터 기반 마이크로 세그멘테이션 방법론 연구(김용대, 정구환, 2016)](http://kostat.go.kr/file_total/ex-1-02.pdf)
+
 ```{r}
 #install and load package arules
 #install.packages("arules")
-library(arules)
+# library(arules)
 #install and load arulesViz
 #install.packages("arulesViz")
-library(arulesViz)
+# library(arulesViz)
 #install and load tidyverse
 #install.packages("tidyverse")
 library(tidyverse)
@@ -41,6 +43,7 @@ library(lubridate)
 library(plyr)
 library(dplyr)
 library(here)
+library(lda)
 ```
 
 ## Data Description
@@ -78,11 +81,11 @@ retail <- read_excel(here('data/online_retail/Online Retail.xlsx'))
 retail <- retail[complete.cases(retail),]
 
 #mutate function is from dplyr package. It is used to edit or add new columns to dataframe. Here Description column is being converted to factor column. as.factor converts column to factor column. %>% is an operator with which you may pipe values to another function or expression
-retail <- retail %>% mutate(Description = as.factor(Description))
+# retail <- retail %>% mutate(Description = as.factor(Description))
 ```
 
 ```{r}
-retail <- retail %>% mutate(Country = as.factor(Country))
+# retail <- retail %>% mutate(Country = as.factor(Country))
 ```
 
 ```{r}
@@ -104,16 +107,156 @@ retail %>% glimpse()
 ```
 
 ```{r}
-Description <- retail$Description
-
-duplicated(retail) %>% table()
-
-retail[duplicated(retail), ] %>% 
-  arrange(InvoiceNo, StockCode, Description)
+# 데이터는 약 일년치 데이터(2010-12-01~2011-12-09)
+retail %>% 
+  select(Date) %>% arrange(Date) %>% head()
+retail %>% 
+  select(Date) %>% arrange(Date) %>% tail()
 ```
 
 ```{r}
-shop
+### 나중에 고민
+# duplicated(retail) %>% table()
+# 
+# retail[duplicated(retail), ] %>% 
+#   arrange(InvoiceNo, StockCode, Description)
 ```
 
+```{r}
+shop <- retail %>% 
+  select(CustomerID, Description) %>% 
+  dplyr::group_by(CustomerID, Description) %>% 
+  dplyr::summarize(cnt = n()) %>% ungroup()
+```
+
+```{r}
+### Description당 고유번호 확인 
+Description <- 
+  shop %>% 
+    dplyr::select(Description) %>% 
+    dplyr::arrange(Description) %>% 
+    unique() 
+
+Description %<>% 
+  bind_cols(1:dim(Description)[1])
+
+colnames(Description) <- c("Description", "No")
+
+Description %>% tail(100)
+
+### shop의 Description을 고유번호로 대체
+shop <- shop %>% 
+  left_join(Description, by="Description") %>% 
+  select(CustomerID, No, cnt)
+```
+
+```{r}
+write_csv(shop, here("data/online_retail/shop.csv"))
+
+write.table(Description$Description, here("data/online_retail/Description.txt"))
+```
+
+## 토픽모델링
+
+-   코드 출처 : [토픽모형을 이용한 빅데이터 기반 마이크로 세그멘테이션 방법론 연구(김용대, 정구환, 2016)](http://kostat.go.kr/file_total/ex-1-02.pdf)
+
+```{r}
+shop = read_csv(here("data/online_retail/shop.csv"))
+mj = table(shop[,1]) # CustomerID count
+outfile = file(here("data/online_retail/shop.dat"))
+line = c(); k = 1
+for(j in 1:length(mj)){ # customerID길이의 반복문
+   line=paste0(line, mj[j])
+   for(i in k:(k+mj[j]-1)){
+     line=paste0(line, " ", shop[i, 2]-1, ":", shop[i, 3])
+   }
+   line=paste0(line, "\n")
+   k=k+mj[j]
+}
+writeLines(line, outfile)
+close(outfile)
+```
+
+```{r}
+library(lda)
+shop2 <- read.documents(here("data/online_retail/shop.dat"))
+item_name <- read.vocab(here("data/online_retail/Description.txt"))
+
+K <- 11; alpha <- 1.0; beta <- 1.0; iter = 500
+lda <- lda.collapsed.gibbs.sampler(shop2,
+                                   K, 
+                                   item_name,
+                                   iter,
+                                   alpha,
+                                   beta,
+                                   compute.log.likelihood =  T)
+
+```
+
+#### 자료 분석결과
+
+- $\theta$와 $\phi$ 추정결과
+
+```{r}
+
+plot = data.frame(iteration = c(1:iter, 1:iter),
+                  loglike = c(lda$log.likelihoods[1,],
+                              lda$log.likelihoods[2,]),
+                  type = c(rep(1,iter), rep(2,iter)))
+
+ggplot(plot, aes(x = iteration, y = loglike, group = type)) + 
+  geom_line()
+```
+- $\theta$와 $\phi$를 추정하는 R코드
+```{r}
+n = 4372 # 고객 수
+W = dim(Description)[1] + 1
+theta = matrix(0, nrow=n, ncol=K)
+
+for (i in 1:n){
+   theta[i,] = t(lda$document_sums[,i])/sum(lda$document_sums[,i])
+} 
+phi = matrix(0, nrow=K, ncol = W)
+
+for (i in 1:K){
+  phi[i, ] = lda$topics[i,]/sum(lda$topics[i,])
+}
+
+theta %>% summary()
+# phi %>% summary()
+```
+
+##### 리프트 계산
+```{r}
+p = colSums(lda$topics) / sum(lda$topics)
+lift = matrix(0, nrow = K, ncol = W)
+colnames(lift) <- item_name
+
+topic_name = c()
+
+for (i in 1:K){
+  lift[i, ] <- phi[i, ] / p
+  sorted = sort(lift[i,], decreasing = T )[1:2]
+  topic_name = c(topic_name,
+                 paste(names(sorted), collapse = "."))
+}
+```
+
+##### 토픽 그리기
+```{r}
+library(ggplot2)
+library(reshape2)
+theme_set(theme_bw())
+colnames(phi) <- item_name; idx = c(1, 6, 7)
+phi.df <- melt(cbind(data.frame(phi[idx,]),
+                     topic = factor(idx)), variable.name = "item",
+               id.vars = "topic")
+
+
+qplot(item, value, fill = item, ylab = "value", data = phi.df,
+      geom = "bar", stat = "identity") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = "none") +
+  coord_flip() + 
+  facet_wrap(~ topic, ncol = length(idx))
+```
 
