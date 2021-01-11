@@ -1,0 +1,299 @@
+---
+title: 'Micro-Segmentation Strategy for Big Data Analytics Using a Topic Model'
+author: "류성균"
+date: '2021 1 11'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+-   reference
+
+    -   UCI repository : [Online Retail](http://archive.ics.uci.edu/ml/datasets/online+retail)
+
+    -   Datacamp : [**Market Basket Analysis using R**](https://www.datacamp.com/community/tutorials/market-basket-analysis-r)
+
+    -   [토픽모형을 이용한 빅데이터 기반 마이크로 세그멘테이션 방법론 연구(김용대, 정구환, 2016)](http://kostat.go.kr/file_total/ex-1-02.pdf)
+
+# 토픽모형을 이용한 빅데이터 기반 마이크로 세그멘테이션 방법론 연구(김용대, 정구환, 2016)
+
+## 마이크로세그멘테이션
+
+-   정의 : 수천 개 이상의 고 객 세그먼트를 구축하는 작업
+
+-   등장 배경 :
+
+    -   고객세분화를 통하여 각 기업은 수십 개의 세그먼트로 고객을 나눠 고객 맞춤형 관리를 수행함.
+    -   하지만 최근에 목격되는 고객 니즈의 다양화와 빠른 변화로 인해 보다 세분화된 고객 분류를 통하여 효과적인 마케팅의 필요성이 절실히 요구됨.
+
+-   기존 세그멘티이션과 차이점
+
+    -   기존 군집분석 방법으로는 분산이 작은 여러 개의 군집을 식별하지 못하고 큰 묶음으로 간주.
+
+-   토픽모형, LDA(Latent Dirichlet Allocation)
+
+    -   토픽모형의 개념
+
+        -   문서를 출현하는 단어의 빈도를 기반으로 분류하기 위하여 개발된 분석방법이다.
+
+        -   토픽모형에서의 토픽은 군집분석에서의 세그먼트와 같은 개념
+
+        -   토픽모형을 고객 구매이력 빅데이터에 적용할 때에는 고객은 문서에, 고객이 구매한 상품은 문서가 포함한 단어에 대응된다.
+
+    -   토픽모형의 특징
+
+        -   하나의 문서가 여러 개의 토픽을 가질 수 있음. 즉, 토픽모형을 이용한 고객 세그멘테이션에서는 한 고객이 여러 개의 세그먼트에 할당될 수 있는 다중 멤버십(multi-membership)이라는 특징이 있어 수십 개의 토픽으로 수만 개의 마이크로 세그먼트를 생성하는 것 가능.
+
+        -   다항분포에 기반한 확률모형에 의해 토픽 할당이 이루어져 기존 거리기반 군집분석에서 필요로 하는 거리를 정의하지 않아도 됨.
+
+# UCI Online Retail 데이터를 활용한 마이크로 세그멘테이션 구현
+
+## Data Description
+
+#### **Dataset Description**
+
+-   **Number of Rows:**541,909
+
+-   **Number of Attributes:**08
+
+##### Attribute Information
+
+-   InvoiceNo: Invoice number. Nominal, a 6-digit integral number uniquely assigned to each transaction. If this code starts with letter 'c', it indicates a cancellation. +StockCode: Product (item) code. Nominal, a 5-digit integral number uniquely assigned to each distinct product.
+
+-   Description: Product (item) name. Nominal.
+
+-   Quantity: The quantities of each product (item) per transaction. Numeric.
+
+-   InvoiceDate: Invoice Date and time. Numeric, the day and time when each transaction was generated. Example from dataset: 12/1/2010 8:26
+
+-   UnitPrice: Unit price. Numeric, Product price per unit in sterling.
+
+-   CustomerID: Customer number. Nominal, a 5-digit integral number uniquely assigned to each customer.
+
+-   Country: Country name. Nominal, the name of the country where each customer resides.
+
+※ 데이터 기간 : 2010-12-01\~2011-12-09
+
+## 사용 패키지
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(knitr)
+library(ggplot2)
+library(here)
+library(lda)
+library(tictoc)
+library(magrittr)
+```
+
+## 데이터 읽기 & 전처리
+
+```{r}
+# read excel into R dataframe
+tic("read file") # 10.89 sec
+retail <- read_excel(here('data/online_retail/Online Retail.xlsx'))
+toc()
+
+# complete.cases(data) will return a logical vector indicating which rows have no missing value Then use the vector to get only rows that are complete using retail[,].
+retail <- retail[complete.cases(retail),]
+
+# Converts character data to date. Store InvoiceDate as date in new variable
+retail$Date <- as.Date(retail$InvoiceDate)
+# Extract time from InvoiceDate and store in another variable
+TransTime <- format(retail$InvoiceDate, "%H:%M:%S")
+# Convert and edit InvoiceNo into numeric
+retail$InvoiceNo <- as.numeric(as.character(retail$InvoiceNo))
+
+retail <- cbind(retail, TransTime)
+
+retail %>% glimpse()
+```
+
+### 논문 형태에 맞게 추가 전처리
+
+```{r}
+shop <- retail %>% 
+  select(CustomerID, Description) %>% 
+  dplyr::group_by(CustomerID, Description) %>% 
+  dplyr::summarize(cnt = n()) %>% ungroup()
+
+### Description당 고유번호 확인 
+Description <- 
+  shop %>% 
+    dplyr::select(Description) %>% 
+    dplyr::arrange(Description) %>% 
+    unique() 
+
+Description %<>% 
+  bind_cols(1:dim(Description)[1])
+
+colnames(Description) <- c("Description", "No")
+
+
+### shop의 Description을 고유번호로 대체
+shop <- shop %>% 
+  left_join(Description, by="Description") %>% 
+  select(CustomerID, No, cnt)
+
+```
+
+```{r}
+write_csv(shop, here("data/online_retail/shop.csv"))
+
+write.table(Description$Description, here("data/online_retail/Description.txt"))
+```
+
+## 토픽 모델링
+
+-   코드 출처 : [토픽모형을 이용한 빅데이터 기반 마이크로 세그멘테이션 방법론 연구(김용대, 정구환, 2016)](http://kostat.go.kr/file_total/ex-1-02.pdf)
+
+### LDA 패키지에 맞는 형태로 코드 변환
+
+```{r}
+shop = read_csv(here("data/online_retail/shop.csv"))
+mj = table(shop[,1]) # CustomerID count
+
+outfile = file(here("data/online_retail/shop.dat"))
+line = c(); k = 1
+tic("data transform for LDA") # 1753.13 sec - 30 min
+for(j in 1:length(mj)){ # customerID길이의 반복문
+   line=paste0(line, mj[j])
+   for(i in k:(k+mj[j]-1)){
+     line=paste0(line, " ", shop[i, 2]-1, ":", shop[i, 3])
+   }
+   line=paste0(line, "\n")
+   k=k+mj[j]
+}
+toc()
+writeLines(line, outfile)
+close(outfile)
+```
+
+```{r}
+library(lda)
+shop2 <- read.documents(here("data/online_retail/shop.dat"))
+item_name <- read.vocab(here("data/online_retail/Description.txt"))
+
+K <- 11; alpha <- 1.0; beta <- 1.0; iter = 500
+tic("lda fitting") # 52.51 sec
+lda <- lda.collapsed.gibbs.sampler(shop2, 
+                                   K, 
+                                   item_name,
+                                   iter,
+                                   alpha,
+                                   beta,
+                                   compute.log.likelihood =  T)
+toc()
+```
+
+### 자료 분석결과
+
+-   $\theta$와 $\phi$ 추정결과
+
+```{r}
+
+plot = data.frame(iteration = c(1:iter, 1:iter),
+                  loglike = c(lda$log.likelihoods[1,],
+                              lda$log.likelihoods[2,]),
+                  type = c(rep(1,iter), rep(2,iter)))
+
+ggplot(plot, aes(x = iteration, y = loglike, group = type)) + 
+  geom_line()
+```
+
+-   $\theta$와 $\phi$를 추정하는 R코드
+
+```{r}
+n = 4372 # 고객 수
+W = dim(Description)[1] + 1
+theta = matrix(0, nrow=n, ncol=K)
+
+for (i in 1:n){
+   theta[i,] = t(lda$document_sums[,i])/sum(lda$document_sums[,i])
+} 
+phi = matrix(0, nrow=K, ncol = W)
+
+for (i in 1:K){
+  phi[i, ] = lda$topics[i,]/sum(lda$topics[i,])
+}
+
+theta %>% summary()
+# phi %>% summary()
+```
+
+##### 리프트 계산
+
+```{r}
+p = colSums(lda$topics) / sum(lda$topics)
+lift = matrix(0, nrow = K, ncol = W)
+colnames(lift) <- item_name
+
+topic_name = c()
+
+for (i in 1:K){
+  lift[i, ] <- phi[i, ] / p
+  sorted = sort(lift[i,], decreasing = T )[1:2]
+  topic_name = c(topic_name,
+                 paste(names(sorted), collapse = "."))
+}
+
+lift %>% dim() # 11 3886 행이 토픽, 열이 아이템
+colnames(lift)
+```
+
+##### 토픽 그리기
+
+```{r}
+library(ggplot2)
+library(reshape2)
+theme_set(theme_bw())
+colnames(phi) <- item_name; idx = c(1, 6, 7)
+phi.df <- melt(cbind(data.frame(phi[idx,]),
+                     topic = factor(idx)), variable.name = "item", id.vars = "topic")
+phi.df %>% head()
+phi.df %>% ggplot(aes(x = item, y = value)) + 
+  geom_bar(stat = "identity") + 
+  theme(axis.text.y = element_blank()) + 
+  coord_flip() + 
+  facet_wrap(~ topic, ncol = length(idx))
+```
+
+##### 리프트 그리기
+
+```{r}
+# idx = c(1,6,7)
+
+lift.df <- melt(cbind(data.frame(lift[idx,]),
+      topic = factor(idx)), 
+     varible.name = "item",
+     id.vars = "topic")
+
+lift.df %>% ggplot(aes(x = variable, y = value)) + 
+  geom_bar(stat = "identity") + 
+  theme(axis.text.y = element_blank()) + 
+  coord_flip() + 
+  facet_wrap(~ topic, ncol = length(idx))
+```
+
+##### 고객의 토픽에 대한 분포($\theta$)를 그림
+
+```{r}
+theme_set(theme_bw())
+idx = c(5, 100, 500)
+theta.df <- melt(cbind(data.frame(theta[idx, ]),
+                       client = factor(idx)),
+                 variable.name = "topic",
+                 id.vars = "client")
+
+theta.df %>% head()
+
+theta.df %>% ggplot(aes(x = topic, y = value, fill = topic)) +
+  geom_bar(stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  coord_flip() + 
+  facet_wrap(~ client, ncol = length(idx)) + 
+  ylab("probability")
+```
