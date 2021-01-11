@@ -44,6 +44,9 @@ library(plyr)
 library(dplyr)
 library(here)
 library(lda)
+
+library(magrittr)
+library(tictoc) # time checking
 ```
 
 ## Data Description
@@ -75,7 +78,9 @@ library(lda)
 ```{r}
 # read excel into R dataframe
 
+tic("read file")
 retail <- read_excel(here('data/online_retail/Online Retail.xlsx'))
+toc()
 
 # complete.cases(data) will return a logical vector indicating which rows have no missing value Then use the vector to get only rows that are complete using retail[,].
 retail <- retail[complete.cases(retail),]
@@ -165,6 +170,7 @@ shop = read_csv(here("data/online_retail/shop.csv"))
 mj = table(shop[,1]) # CustomerID count
 outfile = file(here("data/online_retail/shop.dat"))
 line = c(); k = 1
+tic("data transform for LDA")
 for(j in 1:length(mj)){ # customerID길이의 반복문
    line=paste0(line, mj[j])
    for(i in k:(k+mj[j]-1)){
@@ -173,6 +179,7 @@ for(j in 1:length(mj)){ # customerID길이의 반복문
    line=paste0(line, "\n")
    k=k+mj[j]
 }
+toc()
 writeLines(line, outfile)
 close(outfile)
 ```
@@ -183,6 +190,7 @@ shop2 <- read.documents(here("data/online_retail/shop.dat"))
 item_name <- read.vocab(here("data/online_retail/Description.txt"))
 
 K <- 11; alpha <- 1.0; beta <- 1.0; iter = 500
+tic("lda fitting")
 lda <- lda.collapsed.gibbs.sampler(shop2,
                                    K, 
                                    item_name,
@@ -190,12 +198,12 @@ lda <- lda.collapsed.gibbs.sampler(shop2,
                                    alpha,
                                    beta,
                                    compute.log.likelihood =  T)
-
+toc()
 ```
 
 #### 자료 분석결과
 
-- $\theta$와 $\phi$ 추정결과
+-   $\theta$와 $\phi$ 추정결과
 
 ```{r}
 
@@ -207,7 +215,9 @@ plot = data.frame(iteration = c(1:iter, 1:iter),
 ggplot(plot, aes(x = iteration, y = loglike, group = type)) + 
   geom_line()
 ```
-- $\theta$와 $\phi$를 추정하는 R코드
+
+-   $\theta$와 $\phi$를 추정하는 R코드
+
 ```{r}
 n = 4372 # 고객 수
 W = dim(Description)[1] + 1
@@ -227,6 +237,7 @@ theta %>% summary()
 ```
 
 ##### 리프트 계산
+
 ```{r}
 p = colSums(lda$topics) / sum(lda$topics)
 lift = matrix(0, nrow = K, ncol = W)
@@ -243,15 +254,14 @@ for (i in 1:K){
 ```
 
 ##### 토픽 그리기
+
 ```{r}
 library(ggplot2)
 library(reshape2)
 theme_set(theme_bw())
 colnames(phi) <- item_name; idx = c(1, 6, 7)
 phi.df <- melt(cbind(data.frame(phi[idx,]),
-                     topic = factor(idx)), variable.name = "item",
-               id.vars = "topic")
-
+                     topic = factor(idx)), variable.name = "item", id.vars = "topic")
 
 qplot(item, value, fill = item, ylab = "value", data = phi.df,
       geom = "bar", stat = "identity") +
@@ -260,3 +270,6 @@ qplot(item, value, fill = item, ylab = "value", data = phi.df,
   facet_wrap(~ topic, ncol = length(idx))
 ```
 
+```{r}
+toc()
+```
