@@ -114,6 +114,11 @@ retail <- cbind(retail, TransTime)
 retail %>% glimpse()
 ```
 
+```{r}
+
+```
+
+
 ### 논문 형태에 맞게 추가 전처리
 
 ```{r}

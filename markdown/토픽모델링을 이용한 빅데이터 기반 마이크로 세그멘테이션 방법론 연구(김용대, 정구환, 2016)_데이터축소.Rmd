@@ -3,6 +3,8 @@ title: 'Micro-Segmentation Strategy for Big Data Analytics Using a Topic Model'
 author: "류성균"
 date: '2021 1 11'
 output: html_document
+editor_options: 
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -78,6 +80,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## 사용 패키지
 
+-> 필요시 전처리 이후인 chunk 7으로 가도 됨
+
 ```{r}
 library(tidyverse)
 library(readxl)
@@ -87,13 +91,15 @@ library(here)
 library(lda)
 library(tictoc)
 library(magrittr)
+library(dplyr)
+
 ```
 
 ## 데이터 읽기 & 전처리
 
 ```{r}
 # read excel into R dataframe
-tic("read file") # 10.89 sec
+tic("read file") # 8.83 sec
 retail <- read_excel(here('data/online_retail/Online Retail.xlsx'))
 toc()
 
@@ -112,10 +118,38 @@ retail <- cbind(retail, TransTime)
 retail %>% glimpse()
 ```
 
+### 데이터 축소 - 3885개 품목 중 상위 500개만 사용(전체 구매량의 65%)
+
+```{r}
+retail %>% dim() # 406,829     10
+```
+
+```{r}
+retail500 <- retail %>% 
+  select(Description, Quantity) %>% 
+  dplyr::group_by(Description) %>% 
+  dplyr::summarize(total = sum(Quantity))  %>% 
+  arrange(desc(total)) %>% mutate(cum = cumsum(total)/sum(total)) %>% 
+  head(500)
+# 193,700     10
+retail500 %>%
+  ggplot(aes(x = reorder(Description, -total), y = total)) +
+  geom_bar(stat = "identity") + 
+  xlab("Description") + 
+  theme(axis.text.x = element_blank())
+```
+
+```{r}
+retail_reduce <- retail %>% 
+  inner_join(retail500, by = "Description") %>% 
+  select(-c(total, cum))
+```
+
+
 ### 논문 형태에 맞게 추가 전처리
 
 ```{r}
-shop <- retail %>% 
+shop <- retail_reduce %>% 
   select(CustomerID, Description) %>% 
   dplyr::group_by(CustomerID, Description) %>% 
   dplyr::summarize(cnt = n()) %>% ungroup()
@@ -134,16 +168,16 @@ colnames(Description) <- c("Description", "No")
 
 
 ### shop의 Description을 고유번호로 대체
-shop <- shop %>% 
+shop %<>% 
   left_join(Description, by="Description") %>% 
   select(CustomerID, No, cnt)
 
 ```
 
 ```{r}
-write_csv(shop, here("data/online_retail/shop.csv"))
+write_csv(shop, here("data/online_retail/shop_reduce.csv"))
 
-write.table(Description$Description, here("data/online_retail/Description.txt"))
+write.table(Description$Description, here("data/online_retail/Description_reduce.txt"))
 ```
 
 ## 토픽 모델링
@@ -153,12 +187,12 @@ write.table(Description$Description, here("data/online_retail/Description.txt"))
 ### LDA 패키지에 맞는 형태로 코드 변환
 
 ```{r}
-shop = read_csv(here("data/online_retail/shop.csv"))
+shop = read_csv(here("data/online_retail/shop_reduce.csv"))
 mj = table(shop[,1]) # CustomerID count
 
-outfile = file(here("data/online_retail/shop.dat"))
+outfile = file(here("data/online_retail/shop_reduce.dat"))
 line = c(); k = 1
-tic("data transform for LDA") # 1753.13 sec - 30 min
+tic("data transform for LDA") # 1753.13 sec - 30 min -> 192.45 sec - 3 min
 for(j in 1:length(mj)){ # customerID길이의 반복문
    line=paste0(line, mj[j])
    for(i in k:(k+mj[j]-1)){
@@ -174,11 +208,11 @@ close(outfile)
 
 ```{r}
 library(lda)
-shop2 <- read.documents(here("data/online_retail/shop.dat"))
-item_name <- read.vocab(here("data/online_retail/Description.txt"))
+shop2 <- read.documents(here("data/online_retail/shop_reduce.dat"))
+item_name <- read.vocab(here("data/online_retail/Description_reduce.txt"))
 
 K <- 11; alpha <- 1.0; beta <- 1.0; iter = 500
-tic("lda fitting") # 52.51 sec
+tic("lda fitting") # 52.51 sec -> 15.2sec
 lda <- lda.collapsed.gibbs.sampler(shop2, 
                                    K, 
                                    item_name,
@@ -207,7 +241,15 @@ ggplot(plot, aes(x = iteration, y = loglike, group = type)) +
 -   $\theta$와 $\phi$를 추정하는 R코드
 
 ```{r}
-n = 4372 # 고객 수
+retail_reduce %>% select(CustomerID) %>% 
+  distinct() %>% dim()[1] # 4258
+```
+
+
+```{r}
+n = retail_reduce %>% select(CustomerID) %>% 
+  distinct() %>% nrow()# 고객 수
+
 W = dim(Description)[1] + 1
 theta = matrix(0, nrow=n, ncol=K)
 
@@ -240,8 +282,8 @@ for (i in 1:K){
                  paste(names(sorted), collapse = "."))
 }
 
-lift %>% dim() # 11 3886 행이 토픽, 열이 아이템
-colnames(lift)
+# lift %>% dim() # 11 3886 행이 토픽, 열이 아이템
+
 ```
 
 ##### 토픽 그리기
@@ -253,12 +295,13 @@ theme_set(theme_bw())
 colnames(phi) <- item_name; idx = c(1, 6, 7)
 phi.df <- melt(cbind(data.frame(phi[idx,]),
                      topic = factor(idx)), variable.name = "item", id.vars = "topic")
-phi.df %>% head()
-phi.df %>% ggplot(aes(x = item, y = value)) + 
+# phi.df %>% head()
+phi.df %>% ggplot(aes(x = reorder(item, -value), y = value)) + 
   geom_bar(stat = "identity") + 
   theme(axis.text.y = element_blank()) + 
   coord_flip() + 
-  facet_wrap(~ topic, ncol = length(idx))
+  facet_wrap(~ topic, ncol = length(idx)) + 
+  xlab("item")
 ```
 
 ##### 리프트 그리기
@@ -271,11 +314,12 @@ lift.df <- melt(cbind(data.frame(lift[idx,]),
      varible.name = "item",
      id.vars = "topic")
 
-lift.df %>% ggplot(aes(x = variable, y = value)) + 
+lift.df %>% ggplot(aes(x = reorder(variable, -value), y = value)) + 
   geom_bar(stat = "identity") + 
   theme(axis.text.y = element_blank()) + 
   coord_flip() + 
-  facet_wrap(~ topic, ncol = length(idx))
+  facet_wrap(~ topic, ncol = length(idx)) +
+  xlab("item")
 ```
 
 ##### 고객의 토픽에 대한 분포($\theta$)를 그림
@@ -288,7 +332,7 @@ theta.df <- melt(cbind(data.frame(theta[idx, ]),
                  variable.name = "topic",
                  id.vars = "client")
 
-theta.df %>% head()
+# theta.df %>% head()
 
 theta.df %>% ggplot(aes(x = topic, y = value, fill = topic)) +
   geom_bar(stat = "identity") + 
