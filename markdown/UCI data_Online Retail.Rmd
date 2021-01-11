@@ -78,7 +78,7 @@ library(tictoc) # time checking
 ```{r}
 # read excel into R dataframe
 
-tic("read file")
+tic("read file") # 10.89 sec
 retail <- read_excel(here('data/online_retail/Online Retail.xlsx'))
 toc()
 
@@ -170,7 +170,7 @@ shop = read_csv(here("data/online_retail/shop.csv"))
 mj = table(shop[,1]) # CustomerID count
 outfile = file(here("data/online_retail/shop.dat"))
 line = c(); k = 1
-tic("data transform for LDA")
+tic("data transform for LDA") # 1753.13 sec - 30 min
 for(j in 1:length(mj)){ # customerID길이의 반복문
    line=paste0(line, mj[j])
    for(i in k:(k+mj[j]-1)){
@@ -190,7 +190,7 @@ shop2 <- read.documents(here("data/online_retail/shop.dat"))
 item_name <- read.vocab(here("data/online_retail/Description.txt"))
 
 K <- 11; alpha <- 1.0; beta <- 1.0; iter = 500
-tic("lda fitting")
+tic("lda fitting") # 52.51 sec
 lda <- lda.collapsed.gibbs.sampler(shop2,
                                    K, 
                                    item_name,
@@ -251,6 +251,9 @@ for (i in 1:K){
   topic_name = c(topic_name,
                  paste(names(sorted), collapse = "."))
 }
+
+lift %>% dim() # 11 3886 행이 토픽, 열이 아이템
+colnames(lift)
 ```
 
 ##### 토픽 그리기
@@ -262,14 +265,47 @@ theme_set(theme_bw())
 colnames(phi) <- item_name; idx = c(1, 6, 7)
 phi.df <- melt(cbind(data.frame(phi[idx,]),
                      topic = factor(idx)), variable.name = "item", id.vars = "topic")
-
-qplot(item, value, fill = item, ylab = "value", data = phi.df,
-      geom = "bar", stat = "identity") +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = "none") +
+phi.df %>% head()
+phi.df %>% ggplot(aes(x = item, y = value)) + 
+  geom_bar(stat = "identity") + 
+  theme(axis.text.y = element_blank()) + 
   coord_flip() + 
   facet_wrap(~ topic, ncol = length(idx))
 ```
 
+##### 리프트 그리기
 ```{r}
-toc()
+# idx = c(1,6,7)
+
+lift.df <- melt(cbind(data.frame(lift[idx,]),
+      topic = factor(idx)), 
+     varible.name = "item",
+     id.vars = "topic")
+
+lift.df %>% ggplot(aes(x = variable, y = value)) + 
+  geom_bar(stat = "identity") + 
+  theme(axis.text.y = element_blank()) + 
+  coord_flip() + 
+  facet_wrap(~ topic, ncol = length(idx))
+```
+
+
+##### 고객의 토픽에 대한 분포($\theta$)를 그림
+
+```{r}
+theme_set(theme_bw())
+idx = c(5, 100, 500)
+theta.df <- melt(cbind(data.frame(theta[idx, ]),
+                       client = factor(idx)),
+                 variable.name = "topic",
+                 id.vars = "client")
+
+theta.df %>% head()
+
+theta.df %>% ggplot(aes(x = topic, y = value, fill = topic)) +
+  geom_bar(stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  coord_flip() + 
+  facet_wrap(~ client, ncol = length(idx)) + 
+  ylab("probability")
 ```
